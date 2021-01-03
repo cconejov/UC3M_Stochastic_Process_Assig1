@@ -1,0 +1,317 @@
+---
+title: "Second Assignment - MCMC, Poisson processes, Continuous time Markov chains"
+author: "Cesar Conejo Villalobos, Josu Esarte Araiz, Cecilia Gallego Carracedo, Xavier
+  Bryant (Group 4)"
+date: "11/01/2021"
+output: pdf_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+
+## DO IT ALL THE R CODE HERE!!!!
+
+# Exercise 1
+
+# Load Dobrow Functions
+
+# ascii
+# CharIndex
+# decrypt
+# Score
+
+source('functions/dobrow_functions.R')
+messages <- read.table("data/messages.txt", sep = "\t")
+
+message <- messages$V1[4]
+codemess <- message
+rm(messages)
+
+## Load object with the decrypted message and the Englishcharacters.txt
+
+load('rda/descrypted_msg.rda')
+decrypted_msg <- descrypted_msg[[79]]
+
+
+mat <- read.table("data/Englishcharacters.txt",header=F)
+logmat <- log(mat + 1)
+rm(mat)
+
+
+## Calculation of the score
+curFunc <- 1:27
+coded_Score <- score(decrypt(codemess,curFunc))
+
+decoded_Score <- score(decrypt(decrypted_msg,curFunc))
+```
+
+## Question 1
+
+[2.5 points] Go through Example 5.3 in Dobrow to learn how to use a Metropolis-Hastings algorithm to decode a message. Follow the described procedure to decode the message in row `i` of `messages.txt`,
+where `i` is your group number. The file `Englishcharacters.txt` contains the absolute frequencies of pairs of consecutive characters in English language (taken from the complete works of Jane Austen).
+Return the decoded message and provide the code with your implementation of the algorithm.
+
+**Solution:** In this case, we are the group $i = 4$ and the encrypted message is given by table 1. This character will be saved under the variable name `codemess`.
+
+```{r echo=FALSE}
+knitr::kable(codemess,
+             col.names = NA,
+             row.names = NA,
+             caption = "Encrypted message line 4")
+```
+
+Using as reference the Example 5.3 of Dobrow and the script file `decode.R` available in the page author [people.carleton.edu](https://people.carleton.edu/~rdobrow/StochasticBook/Rscripts/decode.R) we will decrypt the message.
+
+First, we denote the transition matrix $M$ as the absolute frequencies of pairs of consecutive characters contained in the file `Englishcharacters.txt`.
+
+Then, we must consider that our encoded message has `r nchar(codemess)` characters. We will denoted them as $(c_{1},...c_{394})$. So, for each coding function, there is an associated score taking as reference the product over all the pairs of letters in the message with the number of recurrence of that pair in the matrix $M$. This score is given by the following formula:
+
+$$\text{score}(f) = \prod_{i=1}^{393} M_{f(c_i),f(c_{i+1})}$$
+This `score` function is provided by the author:
+
+```{r eval=FALSE, echo=TRUE}
+# Computes the score of the decoded message using the given code.
+# logmat is the logarithm of the values of transition matrix M (EnglishCharacters.txt)
+
+score <- function(code)
+{  
+  p <- 0
+  # For each pair of letters in the decoded message
+  # query the transition matrix for the probability of that pair
+  for (i in 1:(nchar(message)-1)){
+    p <- p + logmat[charIndex(substr(code, i, i)),charIndex(substr(code, i+1, i+1))]
+  }
+  # return the sum of these probabilities
+  p
+}
+```
+
+Finally, the algorithm for decryption of the message has the following steps:
+
+1. Start with any coding function $f$. For convenience, use the identity.
+
+2.  Pick two letters uniformly at random and switch the values that $f$ assigns to these two letters. Call the new proposal function $f^{*}$.
+
+3. Compute the acceptance function $a(f,f^{*}) = \frac{score(f^{*})}{score(f)}$
+
+4. Let $U$ be uniformly distributes on $(0,1)$. If $U \leq a(f,f^{*})$ accept $f^{*}$. Otherwise, stay with $f$.
+
+Following step 1, the coded message provided in table 1 has a score of `r round(coded_Score,2)`. The implementation of the Metropolis-Hastings algorithm is given in the following code. Fixing the seed as the number of the iteration guarantees that 156000 iterations are enough for decrypting the message.
+
+
+```{r eval=FALSE, echo=TRUE}
+# Metropolis-Hastings algorithm
+
+# Step 1: Start with any coding function. Identity for convenience.
+curFunc <- 1:27
+score_f <- score(decrypt(codemess,curFunc))
+
+# instantiate a map to hold previously computed codes scores
+map <- new.env(hash=T, parent=emptyenv())
+map[[paste(curFunc, collapse='')]] <- score_f
+
+
+# run 156000 iterations of the Metropolis-Hastings algorithm
+for (iteration in 1:156000) {
+
+  # Step 2: sample two letters to swap uniformly
+  set.seed(iteration)
+  swaps <- sample(1:26,2)
+
+  # let curFunc be oldFunc but with two letters swapped
+  oldFunc <- curFunc
+  curFunc[swaps[1]] <- oldFunc[swaps[2]]
+  curFunc[swaps[2]] <- oldFunc[swaps[1]]
+
+  # Step 3. Compute the acceptance function: Two scenarios:
+  # 3.1 if we have already scored this decoding,
+  # retrieve score from our map
+  if (exists(paste(curFunc, collapse =''), map)){
+    score_f_star <- map[[paste(curFunc, collapse ='')]]
+  } else
+    # 3.2 if we have not already scored this decoding,
+    # calculate it and store it in the map
+  {
+    score_f_star <- score (decrypt(codemess,curFunc))
+    map[[paste(curFunc, collapse = '')]] <- score_f_star
+  }
+  # acceptance function
+  acc <- exp(score_f_star-score_f)
+  
+  # Step 4. Accept the proposal function f* or keep f.
+  if (runif(1) < acc)
+  {
+    score_f <- score_f_star
+    
+  } else 
+  {
+   
+    curFunc <- oldFunc
+     
+  }
+  
+  # print out our decryption every 2000 iterations
+  if ((iteration %% 2000) == 0)
+  {
+    descrypted_text <- decrypt(codemess,curFunc)
+    print(c(iteration,descrypted_text, score_f_star))
+    descrypted_msg[[pos]] <- descrypted_text
+    pos <- pos + 1
+  }
+}
+```
+
+The decrypted message is given by the table 2. It has a final score of `r round(decoded_Score,2)`.
+
+```{r echo=FALSE}
+knitr::kable(decrypted_msg,
+             col.names = NA,
+             row.names = NA,
+             caption = "Decrypted message")
+```
+
+
+## Question 2
+
+[3 points] The number of cars arriving to the university parking every morning follows a non-homogeneous Poisson process with a constant average of 100 cars per hour between 8 and 8:30 that increases linearly to 250 between 8:30 and 8:45 and continues to increase to 350 between 8:45 and 9 to then decrease to 100 per hour between 9 and 9:30. The parking has 150 spots and opens every morning at 8 a.m. with no car inside.
+
+**a)** [0.75 points] Find the expectation of the number of cars that get to the university parking by time $t$.
+
+**Solution:** Based on the description of the process, we have the following intensity function:
+
+\[   
+\lambda(t) = 
+     \begin{cases}
+       100        &\quad\text{for } 0 \leq t \leq 0.5\\
+       600t - 200 &\quad\text{for } 0.5 < t \leq 0.75 \\
+       400t - 50  &\quad\text{for }  0.75 < t \leq 1 \\ 
+       -500t + 850 &\quad\text{for } 1 < t \leq 1.5 \\ 
+     \end{cases}
+\]
+
+where $t$ represents the time fraction starting with $t=0$ equivalent to $8:00$ am. Figure \ref{fig:intensityrate} provide a graphical representation.
+
+```{r intensityrate, fig.cap = "Intensity rate Cars arrival: Time starts at 8:00 am.\\label{fig:intensityrate}", echo=FALSE}
+a <- function(x){ 
+  ifelse(( x <= 0.5),100,ifelse((0.5<x & x <= 0.75),600*x - 200, ifelse((0.75 < x & x <= 1),400*x - 50, -500*x + 850))) 
+} 
+plot(a,xlim=c(0,1.5), ylim = c(50, 450), col = "red", main = "Plot intensity function \n Cars arrivals rate", ylab = "rate", xlab = "time") 
+abline(h = 350, col = "blue")
+```
+
+Define $N_{t}$ as the number of cars that get to the parking by time $t$. The expected number of cars that get to the parking by time $t$ is given $E[N_{t}] = \int_{0}^{1.5} \lambda(t) dt$ where:
+
+\[   
+\int_{0}^{1.5} \lambda(t) dt = 
+     \begin{cases}
+       50    &\quad\text{for } 0 \leq t \leq 0.5\\
+       43.75 &\quad\text{for } 0.5 < t \leq 0.75 \\
+       75    &\quad\text{for }  0.75 < t \leq 1 \\ 
+       112.5 &\quad\text{for } 1 < t \leq 1.5 \\ 
+     \end{cases}
+\]
+
+So, the total expected number of car from 8 to 9:30 am is $281.25$.
+
+**b)** [0.5 points] Assuming that no car leaves before 9:30, use `R` (without simulation) to find the time you should get to the parking in order to find a free spot at least 80% of the days.
+
+**c)** [1 point] Write an `R` function to simulate this non-homogenueous Poisson process from an homogeneous Poisson process.
+
+**d)** [0.75 points] Use simulation (with the previously created function) to check your answer for part b).
+
+
+
+
+## Question 3
+
+[4.5 points] Consider a supermarket with 2 cashiers. Customers arrive to the unique cashiers waiting line according to a Poisson process with rate $\lambda$. The times to be served (check-out times at the cashier) are independent and distributed as exponential random variables with rate $\mu$. 
+Let us assume that the queue can accomodate an unlimited number of waiting customers. This system is known as the M/M/2 queue. Let $X_t$ denote the number of customers in the system (at the cashiers or in the waiting line) at time $t$.
+
+**a)** [0.75 points] What kind of process is $X = \{X_{t}, t \geq 0\}$? Write its state space and infinitesimal generator.
+
+Based on the description in the previous statement, we have the following facts:
+
+* Arrivals are modeled according to a Poisson Process, with rate $\lambda$. In this case, we know that the interarrival times are independent and exponentially distributed.
+
+* The times to be served by the cashiers are independent and exponentially distributed with rate $\mu$.
+
+From the previous statements, the minimun of this two events is also exponentially distributed, with parameter $\lambda + \mu$. As a result, this process can be modeled as a Continuous Time Markov Chain, where $X_t$ denote the number of customers in the system (at the cashiers or in the waiting line) at time $t$.
+
+The space state for this process is given by $S = \{0 \} \cup \mathbb{N}$. The infinitesimal generator $Q$ corresponds to:
+
+$$
+Q = 
+\left(\begin{array}{cccccc} 
+- \lambda & \lambda          & 0                 & 0                 & 0    & \cdots\\ 
+\mu       & -(\mu + \lambda) & \lambda           & 0                 & 0    & \cdots\\   
+0         & 2\mu             & -(2\mu + \lambda) & \lambda           & 0    & \cdots\\
+0         & 0                & 2\mu              & -(2\mu + \lambda) & \lambda & \cdots \\
+\vdots    & \vdots           & \vdots            & \vdots            & \vdots  & \ddots
+\end{array}\right)
+$$ 
+
+**b)** [1 point] Compute its stationary distribution. What is the expected number of people in the system (checking-out or in the waiting line) in the long-run?
+
+The M/M/2 queue is a birth and death process with parameters:
+
+* Arrival rate:
+
+$$\lambda_{i} = \lambda$$ 
+For all $i \geq 0$.
+
+* Serving rate:
+
+\[   
+\mu_{i} = 
+     \begin{cases}
+       i \mu &\quad\text{for } i = 1,2\\
+       2\mu &\quad\text{for } i \geq 3 \\ 
+     \end{cases}
+\]
+
+Then, we have that:
+
+\begin{align*}
+\sum_{k=0}^{\infty} \prod_{i=1}^{k} \frac{\lambda_{i-1}}{\mu_{i}} &= \sum_{k=0}^{1} \prod_{i=1}^{k} \frac{\lambda}{i\mu} + \sum_{k=2}^{\infty}\left( \prod_{i=1}^{k} \frac{\lambda}{i\mu}\right)\left( \prod_{i=1}^{k} \frac{\lambda}{2\mu}\right)  \\
+          &= \sum_{k=0}^{1} {\left(\frac{\lambda}{\mu}\right)}^{k} \frac{1}{k!} + \frac{1}{2} {\left(\frac{\lambda}{\mu}\right)}^{2} \sum_{k=2}^{\infty} {\left(\frac{\lambda}{2\mu}\right)}^{k-2} \\
+          &= 1 + \frac{\lambda}{\mu} + \frac{1}{2} {\left(\frac{\lambda}{\mu}\right)}^{2} \sum_{j=0}^{\infty} {\left(\frac{\lambda}{2\mu}\right)}^{j}
+\end{align*}        
+          
+The infinity serie converge to $\frac{1}{1-\frac{\lambda}{2\mu}}$ if $0 < \lambda < 2\mu$. In this case, we have:
+
+\begin{align*}
+\sum_{k=0}^{\infty} \prod_{i=1}^{k} \frac{\lambda_{i-1}}{\mu_{i}} &= 1 + \frac{\lambda}{\mu} + \frac{1}{2} {\left(\frac{\lambda}{\mu}\right)}^{2}\left( \frac{1}{1-\frac{\lambda}{2\mu}}\right) \\
+          &= 1 + \frac{\lambda}{\mu} + \frac{1}{2} {\left(\frac{\lambda}{\mu}\right)}^{2}\left( \frac{2 \mu}{2 \mu - \lambda}\right)
+\end{align*}
+
+Adding the condition $\sum_{k=0}^{\infty} \pi_{k} = 1$, the stationary distribution $\boldsymbol{\pi}$ exists with:
+
+$$\pi_{0} = {\left[ 1 + \frac{\lambda}{\mu} + \frac{1}{2} {\left(\frac{\lambda}{\mu}\right)}^{2}\left( \frac{2 \mu}{2 \mu - \lambda}\right) \right]}^{-1}$$
+Finally, the stationary probabilities are given by $\pi_{k} = \pi_{0} \prod_{i=1}^{k} \frac{\lambda_{i-1}}{\mu_{i}}$ in the following way:
+
+\[   
+\pi_{k} = 
+     \begin{cases}
+       \pi_{0} {\left(\frac{\lambda}{\mu}\right)}^{k}\frac{1}{k!} &\quad\text{for } 0 \leq k < 2\\
+       \pi_{0} {\left(\frac{\lambda}{\mu}\right)}^{k}\frac{1}{2^{k-1}}  &\quad\text{for } k \geq 2 \\ 
+     \end{cases}
+\]
+
+With this expression, we can calculate the expected number of people in the system (checking-out or in the waiting line) in the long-run.
+
+* Expected number of customers in the queue
+
+
+
+**c)** [0.75 points] We say that *overtaking* occurs when a customer departs the supermarket before another customer who arrived earlier to the waiting line. 
+In steady state, find the probability that an arriving customer overtakes another customer (you may assume that the state of the system at each arrival instant is distributed according to the stationary distribution).
+
+**d)** [1 point] Write the `R` code necessary to simulate the system (provide the code) and generate the times customers leave the supermarket.
+
+**e)** [1 point] Assuming 2 customers arrive to the cashiers every 5 minutes on average and it takes an average time of 4 minutes to check-out, estimate through simulation the probability of overtaking and compare it with the result you got in part c). Also estimate the long-run average number of
+people in the system and compare it with the result of part b). Explain all the considerations you make and the simulation setting (provide the code).
+
+
+
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that ge2
